@@ -47,7 +47,6 @@ The ROS module provides utilities for working with ROS messages and nodes:
 - **`debug_publisher.hpp`**: A helper class for publishing debug messages with timestamps.
 - **`diagnostics_interface.hpp`**: An interface for publishing diagnostic messages.
 - **`logger_level_configure.hpp`**: Utility for configuring logger levels dynamically.
-- **`managed_transform_buffer.hpp`**: A managed buffer for handling static and dynamic transforms.
 - **`marker_helper.hpp`**: Helper functions for creating and manipulating visualization markers.
 - **`msg_covariance.hpp`**: Indices for accessing covariance matrices in ROS messages.
 - **`msg_operation.hpp`**: Overloaded operators for quaternion messages.
@@ -139,36 +138,6 @@ int main() {
 ```
 
 ### Detailed Usage Examples
-
-#### Transform Point Clouds with ManagedTransformBuffer
-
-```cpp
-#include "autoware_utils/ros/managed_transform_buffer.hpp"
-#include "sensor_msgs/msg/point_cloud2.hpp"
-#include <rclcpp/rclcpp.hpp>
-
-int main(int argc, char * argv[]) {
-  rclcpp::init(argc, argv);
-  auto node = rclcpp::Node::make_shared("transform_node");
-
-  // Initialize ManagedTransformBuffer
-  autoware_utils::ManagedTransformBuffer transform_buffer(node, false);
-
-  // Load point cloud data
-  sensor_msgs::msg::PointCloud2 cloud_in; // Assume this is populated with data
-  sensor_msgs::msg::PointCloud2 cloud_out;
-
-  // Transform point cloud from "base_link" to "map" frame
-  if (transform_buffer.transform_pointcloud("map", cloud_in, cloud_out)) {
-    RCLCPP_INFO(node->get_logger(), "Point cloud transformed successfully.");
-  } else {
-    RCLCPP_ERROR(node->get_logger(), "Failed to transform point cloud.");
-  }
-
-  rclcpp::shutdown();
-  return 0;
-}
-```
 
 #### Update Parameters Dynamically with update_param.hpp
 
