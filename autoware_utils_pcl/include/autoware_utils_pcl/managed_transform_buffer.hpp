@@ -64,42 +64,48 @@ class ManagedTransformBuffer
 {
 public:
   explicit ManagedTransformBuffer(rclcpp::Node * node, const bool & has_static_tf_only)
-  : node_(node)
+  : node_(node), has_static_tf_only_(has_static_tf_only)
   {
     if (has_static_tf_only) {
       get_transform_ = [this](
                          const std::string & target_frame, const std::string & source_frame,
+                         const rclcpp::Time & time, const rclcpp::Duration & timeout,
                          Eigen::Matrix4f & eigen_transform) {
-        return get_static_transform(target_frame, source_frame, eigen_transform);
+        return get_static_transform(target_frame, source_frame, time, timeout, eigen_transform);
       };
     } else {
       tf_listener_ = std::make_unique<autoware_utils_tf::TransformListener>(node);
       get_transform_ = [this](
                          const std::string & target_frame, const std::string & source_frame,
+                         const rclcpp::Time & time, const rclcpp::Duration & timeout,
                          Eigen::Matrix4f & eigen_transform) {
-        return get_dynamic_transform(target_frame, source_frame, eigen_transform);
+        return get_dynamic_transform(target_frame, source_frame, time, timeout, eigen_transform);
       };
     }
   }
 
   bool get_transform(
-    const std::string & target_frame, const std::string & source_frame,
-    Eigen::Matrix4f & eigen_transform)
+    const std::string & target_frame, const std::string & source_frame, const rclcpp::Time & time,
+    const rclcpp::Duration & timeout, Eigen::Matrix4f & eigen_transform)
   {
-    return get_transform_(target_frame, source_frame, eigen_transform);
+    return get_transform_(target_frame, source_frame, time, timeout, eigen_transform);
   }
 
   /**
    * Transforms a point cloud from one frame to another.
    *
    * @param target_frame The target frame to transform the point cloud to.
+   * @param time The time at which the value of the transform is desired.
+   * @param timeout How long to block before failing.
    * @param cloud_in The input point cloud to be transformed.
    * @param cloud_out The transformed point cloud.
+   * @param override_stamp If true, the output point cloud stamp is set to input point cloud stamp.
    * @return True if the transformation is successful, false otherwise.
    */
   bool transform_pointcloud(
-    const std::string & target_frame, const sensor_msgs::msg::PointCloud2 & cloud_in,
-    sensor_msgs::msg::PointCloud2 & cloud_out)
+    const std::string & target_frame, const rclcpp::Time & time, const rclcpp::Duration & timeout,
+    const sensor_msgs::msg::PointCloud2 & cloud_in, sensor_msgs::msg::PointCloud2 & cloud_out,
+    const bool override_stamp = false)
   {
     if (
       pcl::getFieldIndex(cloud_in, "x") == -1 || pcl::getFieldIndex(cloud_in, "y") == -1 ||
@@ -112,11 +118,14 @@ public:
       return true;
     }
     Eigen::Matrix4f eigen_transform;
-    if (!get_transform(target_frame, cloud_in.header.frame_id, eigen_transform)) {
+    if (!get_transform(target_frame, cloud_in.header.frame_id, time, timeout, eigen_transform)) {
       return false;
     }
     pcl_ros::transformPointCloud(eigen_transform, cloud_in, cloud_out);
     cloud_out.header.frame_id = target_frame;
+    if (override_stamp) {
+      cloud_out.header.stamp = cloud_in.header.stamp;
+    }
     return true;
   }
 
@@ -131,13 +140,15 @@ private:
    *
    * @param target_frame The target frame.
    * @param source_frame The source frame.
+   * @param time The time at which the value of the transform is desired.
+   * @param timeout How long to block before failing.
    * @param eigen_transform The output Eigen transform matrix. It is set to the identity if the
    * transform is not found.
    * @return True if the transform was successfully retrieved, false otherwise.
    */
   bool get_static_transform(
-    const std::string & target_frame, const std::string & source_frame,
-    Eigen::Matrix4f & eigen_transform)
+    const std::string & target_frame, const std::string & source_frame, const rclcpp::Time & time,
+    const rclcpp::Duration & timeout, Eigen::Matrix4f & eigen_transform)
   {
     if (
       std::find(warn_frames.begin(), warn_frames.end(), target_frame) != warn_frames.end() ||
@@ -174,8 +185,7 @@ private:
 
     // Get the transform from the TF tree
     tf_listener_ = std::make_unique<autoware_utils_tf::TransformListener>(node_);
-    auto tf = tf_listener_->get_transform(
-      target_frame, source_frame, rclcpp::Time(0), rclcpp::Duration(1000ms));
+    auto tf = tf_listener_->get_transform(target_frame, source_frame, time, timeout);
     tf_listener_.reset();
     RCLCPP_DEBUG(
       node_->get_logger(), "Trying to enqueue %s -> %s transform to static TFs buffer...",
@@ -198,16 +208,17 @@ private:
    *
    * @param target_frame The target frame.
    * @param source_frame The source frame.
+   * @param time The time at which the value of the transform is desired.
+   * @param timeout How long to block before failing.
    * @param eigen_transform The output Eigen transformation matrix. It is set to the identity if the
    * transform is not found.
    * @return True if the transform was successfully retrieved, false otherwise.
    */
   bool get_dynamic_transform(
-    const std::string & target_frame, const std::string & source_frame,
-    Eigen::Matrix4f & eigen_transform)
+    const std::string & target_frame, const std::string & source_frame, const rclcpp::Time & time,
+    const rclcpp::Duration & timeout, Eigen::Matrix4f & eigen_transform)
   {
-    auto tf = tf_listener_->get_transform(
-      target_frame, source_frame, rclcpp::Time(0), rclcpp::Duration(1000ms));
+    auto tf = tf_listener_->get_transform(target_frame, source_frame, time, timeout);
     if (tf == nullptr) {
       eigen_transform = Eigen::Matrix4f::Identity();
       return false;
@@ -219,7 +230,11 @@ private:
   TFMap buffer_;
   rclcpp::Node * const node_;
   std::unique_ptr<autoware_utils_tf::TransformListener> tf_listener_;
-  std::function<bool(const std::string &, const std::string &, Eigen::Matrix4f &)> get_transform_;
+  std::function<bool(
+    const std::string &, const std::string &, const rclcpp::Time &, const rclcpp::Duration &,
+    Eigen::Matrix4f &)>
+    get_transform_;
+  bool has_static_tf_only_;
 };
 
 }  // namespace autoware_utils_pcl
